@@ -1,0 +1,16 @@
+{
+  "name": "qa-video-site-backend",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Project-based QA video backend for 6 projects and 60 questions.",
+  "main": "server.js",
+  "scripts": {"start": "node server.js"},
+  "engines": {"node": ">=20 <25"},
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "multer": "^2.0.2",
+    "uuid": "^9.0.1"
+  }
+}

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QA Video Display</title><link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header">
+  <div><h1>QA Video Display</h1><p>Select a project to view its 10 questions and matching videos.</p></div>
+  <a class="admin-link" href="admin.html">Admin</a>
+</header>
+<main class="display-shell">
+  <section class="project-bar">
+    <label for="projectSelect">Project</label>
+    <select id="projectSelect" disabled><option>Loading projects...</option></select>
+    <div id="status" class="status" aria-live="polite"></div>
+  </section>
+  <section class="layout">
+    <div class="question-list" id="questionList"><div class="empty-state">Loading...</div></div>
+    <div class="stage">
+      <h2 id="stageTitle">Select a question</h2>
+      <div class="video-frame" id="videoFrame"><div class="empty-state">No video selected yet</div></div>
+      <div class="stage-meta" id="stageMeta"></div>
+    </div>
+  </section>
+</main>
+<script src="config.js"></script>
+<script>
+const API = (window.APP_CONFIG?.API_BASE_URL || '').replace(/\/$/, '');
+const projectSelect = document.getElementById('projectSelect');
+const questionList = document.getElementById('questionList');
+const frame = document.getElementById('videoFrame');
+const title = document.getElementById('stageTitle');
+const meta = document.getElementById('stageMeta');
+const status = document.getElementById('status');
+let projects = [], questions = [], selectedId = null;
+const cacheKey = 'qa-video-project-cache-v1';
+
+async function fetchJson(path, options = {}, attempts = 3) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch(API + path, {...options, signal: controller.signal});
+      clearTimeout(timer);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Request failed (${res.status})`);
+      return await res.json();
+    } catch (e) {
+      clearTimeout(timer); lastError = e;
+      if (attempt < attempts) await new Promise(r => setTimeout(r, attempt * 1200));
+    }
+  }
+  throw lastError;
+}
+function setStatus(text, type='') { status.textContent = text; status.className = 'status ' + type; }
+function escapeHtml(v='') { const d=document.createElement('div'); d.textContent=v; return d.innerHTML; }
+function renderProjects() {
+  projectSelect.innerHTML = projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  projectSelect.disabled = false;
+}
+function renderQuestions() {
+  if (!questions.length) { questionList.innerHTML = '<div class="empty-state">No questions have been added to this project yet.</div>'; return; }
+  questionList.innerHTML = questions.map(q => `<button class="question-item" data-id="${q.id}"><span class="q-number">Q${q.questionNumber}</span><span>${escapeHtml(q.question)}</span></button>`).join('');
+  questionList.querySelectorAll('.question-item').forEach(btn => btn.addEventListener('click', () => selectQuestion(Number(btn.dataset.id))));
+  selectQuestion(selectedId && questions.some(q => q.id === selectedId) ? selectedId : questions[0].id);
+}
+function selectQuestion(id) {
+  const q = questions.find(x => x.id === id); if (!q) return;
+  selectedId = id;
+  questionList.querySelectorAll('.question-item').forEach(el => el.classList.toggle('active', Number(el.dataset.id) === id));
+  title.textContent = q.question;
+  meta.textContent = q.note || `Question ${q.questionNumber}`;
+  frame.innerHTML = q.videoUrl ? '' : '<div class="empty-state">No video has been uploaded for this question.</div>';
+  if (q.videoUrl) { const video=document.createElement('video'); video.src=q.videoUrl; video.controls=true; video.playsInline=true; frame.appendChild(video); }
+}
+function cacheQuestions(projectId, data) { try { localStorage.setItem(cacheKey, JSON.stringify({projectId, questions:data, savedAt:Date.now()})); } catch {} }
+function readCache(projectId) { try { const x=JSON.parse(localStorage.getItem(cacheKey)||'null'); return x?.projectId===projectId ? x.questions : null; } catch { return null; } }
+async function loadProjects() {
+  setStatus('Connecting to server...');
+  try {
+    projects = await fetchJson('/api/projects'); renderProjects();
+    const params = new URLSearchParams(location.search); const fromUrl = Number(params.get('project'));
+    const saved = Number(localStorage.getItem('qa-selected-project'));
+    const chosen = projects.some(p=>p.id===fromUrl) ? fromUrl : (projects.some(p=>p.id===saved) ? saved : projects[0]?.id);
+    if (chosen) { projectSelect.value=chosen; await loadQuestions(chosen); }
+  } catch (e) { setStatus('Server is waking up. Please retry.', 'error'); questionList.innerHTML='<div class="empty-state">Could not connect to the backend. Refresh to retry.</div>'; }
+}
+async function loadQuestions(projectId) {
+  localStorage.setItem('qa-selected-project', projectId); selectedId=null;
+  const cached=readCache(projectId);
+  if (cached?.length) { questions=cached; renderQuestions(); setStatus('Showing saved project data. Updating...', ''); }
+  else { questionList.innerHTML='<div class="empty-state">Loading Project...</div>'; setStatus('Loading project data...'); }
+  try { questions=await fetchJson(`/api/projects/${projectId}/questions`); cacheQuestions(projectId, questions); renderQuestions(); setStatus(`${questions.length}/10 questions loaded`, 'ok'); }
+  catch(e) { if (cached?.length) setStatus('Offline/backend unavailable. Showing saved data.', 'warn'); else setStatus('Server is waking up. Please retry.', 'error'); }
+}
+projectSelect.addEventListener('change', e => loadQuestions(Number(e.target.value)));
+loadProjects();
+</script>
+</body></html>

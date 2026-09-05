@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QA Video Admin</title><link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="loginView" class="login-box"><h2>Admin login</h2><p>Enter the admin token to manage all six projects.</p><input type="password" id="tokenInput" placeholder="Admin token"><button class="primary" id="loginBtn">Enter</button><div class="status" id="loginStatus"></div></div>
+<main id="adminView" class="admin-shell" hidden>
+<header class="admin-header"><div><h1>Manage Project Questions</h1><p>Choose a project, then upload or replace the video for each of its 10 question slots.</p></div><a class="admin-link" href="index.html">Display</a></header>
+<section class="project-bar"><label for="projectSelect">Project</label><select id="projectSelect"></select><div id="projectStatus" class="status"></div></section>
+<section id="questionEditor" class="editor-list"></section>
+</main>
+<script src="config.js"></script>
+<script>
+const API=(window.APP_CONFIG?.API_BASE_URL||'').replace(/\/$/,''); let token=sessionStorage.getItem('adminToken')||''; let projects=[], questions=[]; let selectedProject=null;
+const loginView=document.getElementById('loginView'), adminView=document.getElementById('adminView'), loginStatus=document.getElementById('loginStatus');
+const projectSelect=document.getElementById('projectSelect'), editor=document.getElementById('questionEditor'), projectStatus=document.getElementById('projectStatus');
+async function request(path, options={}, attempts=3){let last; for(let i=1;i<=attempts;i++){try{const r=await fetch(API+path,{...options,headers:{...(options.headers||{}),...(token?{'x-admin-token':token}:{})}}); const data=await r.json().catch(()=>({})); if(!r.ok) throw new Error(data.error||`Request failed (${r.status})`); return data;}catch(e){last=e;if(i<attempts) await new Promise(r=>setTimeout(r,i*1000));}} throw last;}
+function esc(v=''){const d=document.createElement('div');d.textContent=v;return d.innerHTML;}
+async function login(){const t=document.getElementById('tokenInput').value;loginStatus.textContent='Checking...';try{await request('/api/admin/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:t})},1);token=t;sessionStorage.setItem('adminToken',token);showAdmin();}catch(e){loginStatus.textContent='Incorrect token or backend unavailable.';}}
+function showAdmin(){loginView.hidden=true;adminView.hidden=false;loadProjects();}
+async function loadProjects(){try{projects=await request('/api/projects');projectSelect.innerHTML=projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');if(projects.length){selectedProject=Number(projectSelect.value);loadQuestions();}}catch(e){projectStatus.textContent=e.message;}}
+async function loadQuestions(){selectedProject=Number(projectSelect.value);editor.innerHTML='<div class="empty-state">Loading 10 question slots...</div>';projectStatus.textContent='';try{questions=await request(`/api/projects/${selectedProject}/questions`);renderEditor();projectStatus.textContent=`${questions.length}/10 slots currently have videos.`;}catch(e){editor.innerHTML=`<div class="empty-state">${esc(e.message)}</div>`;}}
+function renderEditor(){const map=new Map(questions.map(q=>[q.questionNumber,q]));editor.innerHTML='';for(let n=1;n<=10;n++){const q=map.get(n);const row=document.createElement('form');row.className='question-card';row.dataset.id=q?.id||'';row.innerHTML=`<div class="question-heading"><strong>Question ${n}</strong><span>${q?.videoUrl?'Video uploaded':'No video yet'}</span></div><label>Question text</label><input name="question" value="${esc(q?.question||'')}" placeholder="Enter question ${n}" required><label>Note (optional)</label><input name="note" value="${esc(q?.note||'')}" placeholder="Optional note"><label>Video (mp4, webm, ogg, max 50 MB)</label><input name="video" type="file" accept="video/mp4,video/webm,video/ogg" ${q?'':'required'}><div class="card-actions"><button class="primary" type="submit">${q?'Save / Replace':'Upload Video'}</button>${q?'<button type="button" class="danger delete-btn">Delete</button>':''}<span class="status card-status"></span></div>`;row.addEventListener('submit',e=>saveQuestion(e,n,q));const del=row.querySelector('.delete-btn');if(del)del.addEventListener('click',()=>deleteQuestion(q.id));editor.appendChild(row);}}
+async function saveQuestion(e,n,q){e.preventDefault();const form=e.currentTarget,status=form.querySelector('.card-status'),fd=new FormData();fd.append('questionNumber',n);fd.append('question',form.question.value);fd.append('note',form.note.value);if(form.video.files[0])fd.append('video',form.video.files[0]);status.textContent='Uploading...';try{if(q){await request(`/api/questions/${q.id}`,{method:'PUT',body:fd});}else{await request(`/api/projects/${selectedProject}/questions`,{method:'POST',body:fd});}status.textContent='Saved.';await loadQuestions();}catch(err){status.textContent=err.message;}}
+async function deleteQuestion(id){if(!confirm('Delete this question and its video?'))return;try{await request(`/api/questions/${id}`,{method:'DELETE'});await loadQuestions();}catch(e){alert(e.message);}}
+projectSelect.addEventListener('change',loadQuestions);document.getElementById('loginBtn').addEventListener('click',login);document.getElementById('tokenInput').addEventListener('keydown',e=>{if(e.key==='Enter')login();});if(token)showAdmin();
+</script>
+</body></html>

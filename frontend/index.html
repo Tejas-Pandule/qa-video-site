@@ -91,7 +91,7 @@ async function loadQuestions(projectId) {
   const cached=readCache(projectId);
   if (cached?.length) { questions=cached; renderQuestions(); setStatus('Showing saved project data. Updating...', ''); }
   else { questionList.innerHTML='<div class="empty-state">Loading Project...</div>'; setStatus('Loading project data...'); }
-  try { questions=await fetchJson(`/api/projects/${projectId}/questions`); cacheQuestions(projectId, questions); renderQuestions(); setStatus(`${questions.length}/10 questions loaded`, 'ok'); }
+  setStatus('', '');
   catch(e) { if (cached?.length) setStatus('Offline/backend unavailable. Showing saved data.', 'warn'); else setStatus('Server is waking up. Please retry.', 'error'); }
 }
 projectSelect.addEventListener('change', e => loadQuestions(Number(e.target.value)));
